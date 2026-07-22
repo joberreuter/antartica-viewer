@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Visor de imágenes aéreas — Antártida</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+  <link rel="stylesheet" href="vendor/leaflet/MarkerCluster.css" />
+  <link rel="stylesheet" href="vendor/leaflet/MarkerCluster.Default.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="info" class="panel">
+    <div id="info-count">Cargando…</div>
+  </div>
+
+  <div id="lightbox" class="lightbox hidden">
+    <button id="lightbox-close" aria-label="Cerrar">&times;</button>
+    <button id="lightbox-prev" class="nav" aria-label="Anterior">&#8249;</button>
+    <img id="lightbox-img" alt="" />
+    <button id="lightbox-next" class="nav" aria-label="Siguiente">&#8250;</button>
+    <div id="lightbox-caption"></div>
+  </div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="vendor/leaflet/leaflet.markercluster.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
