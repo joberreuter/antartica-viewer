@@ -39,6 +39,14 @@ function loadTrajectory(filePath) {
     const parts = t.split(/\s+/);
     if (parts.length < 10) continue;
     const [utcTime, , , , lon, lat, hEll, roll, pitch, heading] = parts;
+    const lonNum = parseFloat(lon);
+    const latNum = parseFloat(lat);
+    if (
+      !Number.isFinite(lonNum) || !Number.isFinite(latNum) ||
+      lonNum < -180 || lonNum > 180 || latNum < -90 || latNum > 90
+    ) {
+      continue; // fila corrupta (ej. columnas pegadas por overflow de ancho fijo)
+    }
     const [hh, mm, ssFrac] = utcTime.split(':');
     const secondsOfDay =
       parseInt(hh, 10) * 3600 + parseInt(mm, 10) * 60 + parseFloat(ssFrac);
