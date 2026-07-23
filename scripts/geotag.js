@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 // Cruza fotos (EXIF DateTimeOriginal) con una tabla de trayectoria GPS/INS
 // (columnas: UTCTime X-ECEF Y-ECEF Z-ECEF Longitude Latitude H-Ell Roll Pitch Heading)
-// y genera site/manifest.json + miniaturas en site/thumbs/<date>/.
+// y genera docs/manifest.json + miniaturas en docs/thumbs/<date>/.
 //
 // Uso:
 //   node scripts/geotag.js --track data/sample_trajectory.txt --photos data/raw/20231121 \
-//     --date 2023-11-21 --offset 0 --tolerance 5 --out site/manifest.json
+//     --date 2023-11-21 --offset 0 --tolerance 5 --out docs/manifest.json
 //
 // --offset: segundos a sumar a la hora EXIF de la foto para alinearla con UTCTime
 //           de la trayectoria (ajustar cuando se conozca el desfase real cámara/GPS).
@@ -96,14 +96,14 @@ async function main() {
   if (!args.track || !args.photos || !args.date) {
     console.error(
       'Uso: node scripts/geotag.js --track <trayectoria.txt> --photos <carpeta> --date YYYY-MM-DD ' +
-      '[--offset segundos] [--tolerance segundos] [--out site/manifest.json] [--thumbWidth 1600]'
+      '[--offset segundos] [--tolerance segundos] [--out docs/manifest.json] [--thumbWidth 1600]'
     );
     process.exit(1);
   }
 
   const offset = parseFloat(args.offset);
   const tolerance = parseFloat(args.tolerance);
-  const outPath = args.out || 'site/manifest.json';
+  const outPath = args.out || 'docs/manifest.json';
   const thumbWidth = parseInt(args.thumbWidth, 10);
   const dateFolder = args.date; // usado para nombrar la subcarpeta de miniaturas
 
@@ -117,7 +117,7 @@ async function main() {
     .readdirSync(args.photos)
     .filter((f) => /\.(jpe?g)$/i.test(f));
 
-  const thumbsDir = path.join('site', 'thumbs', dateFolder);
+  const thumbsDir = path.join('docs', 'thumbs', dateFolder);
   fs.mkdirSync(thumbsDir, { recursive: true });
 
   // Existing manifest is merged so re-running geotag.js for a new date

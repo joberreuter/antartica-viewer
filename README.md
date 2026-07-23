@@ -11,8 +11,8 @@ data/
   raw/<fecha>/           fotos originales por fecha de vuelo (NO se sube a git, ver .gitignore)
   <trayectoria>.txt      tabla de trayectoria GPS/INS (UTCTime, ECEF X/Y/Z, Lon, Lat, H-Ell, Roll, Pitch, Heading)
 scripts/
-  geotag.js              cruza fotos + trayectoria, genera site/manifest.json y site/thumbs/
-site/                    sitio estático (esto es lo que se publica en GitHub Pages)
+  geotag.js              cruza fotos + trayectoria, genera docs/manifest.json y docs/thumbs/
+docs/                    sitio estático (esto es lo que se publica en GitHub Pages)
   index.html, app.js, style.css
   manifest.json          generado por geotag.js — no editar a mano
   thumbs/<fecha>/         miniaturas (~1600px) generadas por geotag.js
@@ -44,28 +44,31 @@ site/                    sitio estático (esto es lo que se publica en GitHub Pa
      que superen la tolerancia igual se geoetiquetan (con la posición más
      cercana disponible) pero quedan marcadas en la consola y en el
      manifest (`matchDeltaSeconds`) para revisión manual.
-   - El script fusiona el resultado con `site/manifest.json` existente
+   - El script fusiona el resultado con `docs/manifest.json` existente
      (reemplaza solo las entradas de la misma fecha), así que se puede
      correr repetidas veces para distintos días sin perder datos previos.
 
 4. Revisar en consola cuántas fotos quedaron marcadas con desfase alto.
-5. Probar localmente (ver abajo) y hacer commit de `site/` (NO de `data/raw/`).
+5. Probar localmente (ver abajo) y hacer commit de `docs/` (NO de `data/raw/`).
 
 ## Probar localmente
 
 ```
-npx http-server site -p 5173 -c-1
+npx http-server docs -p 5173 -c-1
 ```
 
 y abrir http://localhost:5173
 
 ## Publicar en GitHub Pages
 
-1. Crear un repositorio en GitHub y agregar este proyecto como remoto.
-2. Habilitar GitHub Pages sirviendo la carpeta `site/` (o mover el
-   contenido de `site/` a la raíz / usar la rama `gh-pages`).
-3. Cada vez que se agregue un nuevo día de vuelo: correr `geotag.js`,
-   revisar el resultado, y hacer commit + push de `site/`.
+Repo: https://github.com/joberreuter/antartica-viewer
+Sitio: https://joberreuter.github.io/antartica-viewer/
+
+GitHub Pages ya está configurado para servir la carpeta `docs/` de la
+rama `master` (Settings → Pages → "Deploy from a branch" → `master` /
+`/docs`). Cada vez que se agregue un nuevo día de vuelo: correr
+`geotag.js`, revisar el resultado, y hacer commit + push de `docs/`
+(GitHub Pages se actualiza solo en 1-2 minutos tras el push).
 
 ## Pendiente / decisiones abiertas
 
