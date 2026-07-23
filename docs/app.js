@@ -14,7 +14,11 @@
   L.control.layers({ Satélite: satellite, Calles: streets }).addTo(map);
   L.control.scale({ imperial: false }).addTo(map);
 
-  const cluster = L.markerClusterGroup({ maxClusterRadius: 40 });
+  const cluster = L.markerClusterGroup({
+    maxClusterRadius: 40,
+    zoomToBoundsOnClick: false,
+    spiderfyOnMaxZoom: false,
+  });
   map.addLayer(cluster);
 
   const infoCount = document.getElementById('info-count');
@@ -54,6 +58,7 @@
         </div>
       </div>`;
 
+    marker.photoIndex = index;
     marker.bindPopup(popupHtml);
     marker.on('popupopen', (e) => {
       const img = e.popup.getElement().querySelector('img');
@@ -63,6 +68,15 @@
     cluster.addLayer(marker);
     markers.push(marker);
     bounds.push([p.lat, p.lon]);
+  });
+
+  // Clic en un cluster: abre directamente la primera foto (por hora) del
+  // grupo, sin hacer zoom ni spiderfy.
+  cluster.on('clusterclick', (e) => {
+    const children = e.layer.getAllChildMarkers();
+    if (!children.length) return;
+    const firstIndex = Math.min(...children.map((m) => m.photoIndex));
+    openLightbox(firstIndex);
   });
 
   if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
