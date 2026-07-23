@@ -11,15 +11,7 @@
     maxZoom: 19,
   });
 
-  L.control.layers({ Satélite: satellite, Calles: streets }).addTo(map);
   L.control.scale({ imperial: false }).addTo(map);
-
-  const cluster = L.markerClusterGroup({
-    maxClusterRadius: 40,
-    zoomToBoundsOnClick: false,
-    spiderfyOnMaxZoom: false,
-  });
-  map.addLayer(cluster);
 
   const infoCount = document.getElementById('info-count');
 
@@ -35,6 +27,33 @@
 
   photos.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
   infoCount.textContent = `${photos.length} foto${photos.length === 1 ? '' : 's'} geoetiquetada${photos.length === 1 ? '' : 's'}`;
+
+  function newClusterGroup() {
+    const group = L.markerClusterGroup({
+      maxClusterRadius: 40,
+      zoomToBoundsOnClick: false,
+      spiderfyOnMaxZoom: false,
+    });
+    // Clic en un cluster: abre directamente la primera foto (por hora) del
+    // grupo, sin hacer zoom ni spiderfy.
+    group.on('clusterclick', (e) => {
+      const children = e.layer.getAllChildMarkers();
+      if (!children.length) return;
+      const firstIndex = Math.min(...children.map((m) => m.photoIndex));
+      openLightbox(firstIndex);
+    });
+    return group;
+  }
+
+  const clustersByDate = {};
+  const dateCounts = {};
+  for (const p of photos) {
+    if (!clustersByDate[p.date]) {
+      clustersByDate[p.date] = newClusterGroup();
+      dateCounts[p.date] = 0;
+    }
+    dateCounts[p.date]++;
+  }
 
   const markers = [];
   const bounds = [];
@@ -65,19 +84,23 @@
       if (img) img.addEventListener('click', () => openLightbox(index));
     });
 
-    cluster.addLayer(marker);
+    clustersByDate[p.date].addLayer(marker);
     markers.push(marker);
     bounds.push([p.lat, p.lon]);
   });
 
-  // Clic en un cluster: abre directamente la primera foto (por hora) del
-  // grupo, sin hacer zoom ni spiderfy.
-  cluster.on('clusterclick', (e) => {
-    const children = e.layer.getAllChildMarkers();
-    if (!children.length) return;
-    const firstIndex = Math.min(...children.map((m) => m.photoIndex));
-    openLightbox(firstIndex);
-  });
+  const dateOverlays = {};
+  Object.keys(clustersByDate)
+    .sort()
+    .forEach((date) => {
+      const group = clustersByDate[date];
+      map.addLayer(group);
+      dateOverlays[`${date} (${dateCounts[date]})`] = group;
+    });
+
+  L.control
+    .layers({ Satélite: satellite, Calles: streets }, dateOverlays, { collapsed: false })
+    .addTo(map);
 
   if (bounds.length) map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
 
