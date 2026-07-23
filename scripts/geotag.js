@@ -3,6 +3,12 @@
 // (columnas: UTCTime X-ECEF Y-ECEF Z-ECEF Longitude Latitude H-Ell Roll Pitch Heading)
 // y genera docs/manifest.json + miniaturas en docs/thumbs/<date>/.
 //
+// Soporta dos formatos de columna de tiempo (detectado automaticamente
+// leyendo el encabezado del archivo):
+//   - UTCTime (HMS): "11:04:55.0000"
+//   - GPSTime (sec): segundos dentro de la semana GPS, ej. "405609.0000"
+//     (se convierte a hora UTC del dia restando el offset GPS-UTC de 18s)
+//
 // Uso:
 //   node scripts/geotag.js --track data/sample_trajectory.txt --photos data/raw/20231121 \
 //     --date 2023-11-21 --offset 0 --tolerance 5 --out docs/manifest.json
@@ -30,15 +36,21 @@ function parseArgs(argv) {
   return args;
 }
 
+const GPS_UTC_LEAP_SECONDS = 18;
+
 function loadTrajectory(filePath) {
-  const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/);
+  const raw = fs.readFileSync(filePath, 'utf8');
+  const isGpsTime = /\bGPSTime\b/i.test(raw.slice(0, 4000));
+  const timeRe = isGpsTime ? /^\d+\.\d+\s/ : /^\d{1,2}:\d{2}:\d{2}/;
+
+  const lines = raw.split(/\r?\n/);
   const rows = [];
   for (const line of lines) {
     const t = line.trim();
-    if (!t || !/^\d{2}:\d{2}:\d{2}/.test(t)) continue; // skip header/blank lines
+    if (!t || !timeRe.test(t)) continue; // skip header/blank lines
     const parts = t.split(/\s+/);
     if (parts.length < 10) continue;
-    const [utcTime, , , , lon, lat, hEll, roll, pitch, heading] = parts;
+    const [timeCol, , , , lon, lat, hEll, roll, pitch, heading] = parts;
     const lonNum = parseFloat(lon);
     const latNum = parseFloat(lat);
     if (
@@ -47,13 +59,20 @@ function loadTrajectory(filePath) {
     ) {
       continue; // fila corrupta (ej. columnas pegadas por overflow de ancho fijo)
     }
-    const [hh, mm, ssFrac] = utcTime.split(':');
-    const secondsOfDay =
-      parseInt(hh, 10) * 3600 + parseInt(mm, 10) * 60 + parseFloat(ssFrac);
+
+    let secondsOfDay;
+    if (isGpsTime) {
+      const gpsSeconds = parseFloat(timeCol);
+      secondsOfDay = ((gpsSeconds % 86400) - GPS_UTC_LEAP_SECONDS + 86400) % 86400;
+    } else {
+      const [hh, mm, ssFrac] = timeCol.split(':');
+      secondsOfDay = parseInt(hh, 10) * 3600 + parseInt(mm, 10) * 60 + parseFloat(ssFrac);
+    }
+
     rows.push({
       secondsOfDay,
-      lon: parseFloat(lon),
-      lat: parseFloat(lat),
+      lon: lonNum,
+      lat: latNum,
       hEll: parseFloat(hEll),
       roll: parseFloat(roll),
       pitch: parseFloat(pitch),
@@ -128,8 +147,68 @@ async function main() {
   const thumbsDir = path.join('docs', 'thumbs', dateFolder);
   fs.mkdirSync(thumbsDir, { recursive: true });
 
-  // Existing manifest is merged so re-running geotag.js for a new date
-  // folder doesn't wipe out entries from previously processed dates.
+  // Las entradas nuevas se acumulan aparte y el manifest existente se lee
+  // recien al final (justo antes de escribir), no al principio. Con esto,
+  // si hay otro geotag.js corriendo en paralelo para otra fecha (corridas
+  // largas de miles de fotos), cada uno toma el estado mas reciente del
+  // archivo en vez de una foto vieja tomada al arrancar, reduciendo la
+  // ventana de una condicion de carrera de lectura-modificacion-escritura.
+  const newEntries = [];
+
+  let matched = 0;
+  let flagged = 0;
+  let failed = 0;
+
+  for (const file of photoFiles) {
+    try {
+      const fullPath = path.join(args.photos, file);
+      const exif = await exifr.parse(fullPath, { pick: ['DateTimeOriginal'] });
+      if (!exif || !exif.DateTimeOriginal) {
+        console.warn('  sin EXIF DateTimeOriginal, se omite:', file);
+        continue;
+      }
+      const d = exif.DateTimeOriginal;
+      const secondsOfDay =
+        d.getUTCHours() * 3600 +
+        d.getUTCMinutes() * 60 +
+        d.getUTCSeconds() +
+        offset;
+
+      const match = interpolate(rows, secondsOfDay);
+      if (!match) continue;
+      if (match.delta > tolerance) {
+        flagged++;
+        console.warn(
+          `  [!] ${file}: diferencia de ${match.delta.toFixed(1)}s con la trayectoria (> tolerancia ${tolerance}s)`
+        );
+      } else {
+        matched++;
+      }
+
+      const id = path.basename(file, path.extname(file));
+      const thumbFile = `${id}.jpg`;
+      const thumbPath = path.join(thumbsDir, thumbFile);
+      await sharp(fullPath).rotate().resize({ width: thumbWidth }).jpeg({ quality: 82 }).toFile(thumbPath);
+
+      newEntries.push({
+        id,
+        date: dateFolder,
+        thumb: path.posix.join('thumbs', dateFolder, thumbFile),
+        lat: match.row.lat,
+        lon: match.row.lon,
+        alt: match.row.hEll,
+        heading: match.row.heading,
+        timestamp: d.toISOString(),
+        matchDeltaSeconds: Math.round(match.delta * 100) / 100,
+      });
+    } catch (err) {
+      failed++;
+      console.warn(`  [x] ${file}: error al procesar (${err.message}), se omite`);
+    }
+  }
+
+  // Recien aqui se lee el manifest existente, para tomar el estado mas
+  // reciente posible antes de fusionar y escribir.
   let manifest = [];
   if (fs.existsSync(outPath)) {
     try {
@@ -138,62 +217,20 @@ async function main() {
       manifest = [];
     }
   }
-  manifest = manifest.filter((m) => m.date !== dateFolder);
-
-  let matched = 0;
-  let flagged = 0;
-
-  for (const file of photoFiles) {
-    const fullPath = path.join(args.photos, file);
-    const exif = await exifr.parse(fullPath, { pick: ['DateTimeOriginal'] });
-    if (!exif || !exif.DateTimeOriginal) {
-      console.warn('  sin EXIF DateTimeOriginal, se omite:', file);
-      continue;
-    }
-    const d = exif.DateTimeOriginal;
-    const secondsOfDay =
-      d.getUTCHours() * 3600 +
-      d.getUTCMinutes() * 60 +
-      d.getUTCSeconds() +
-      offset;
-
-    const match = interpolate(rows, secondsOfDay);
-    if (!match) continue;
-    if (match.delta > tolerance) {
-      flagged++;
-      console.warn(
-        `  [!] ${file}: diferencia de ${match.delta.toFixed(1)}s con la trayectoria (> tolerancia ${tolerance}s)`
-      );
-    } else {
-      matched++;
-    }
-
-    const id = path.basename(file, path.extname(file));
-    const thumbFile = `${id}.jpg`;
-    const thumbPath = path.join(thumbsDir, thumbFile);
-    await sharp(fullPath).rotate().resize({ width: thumbWidth }).jpeg({ quality: 82 }).toFile(thumbPath);
-
-    manifest.push({
-      id,
-      date: dateFolder,
-      thumb: path.posix.join('thumbs', dateFolder, thumbFile),
-      lat: match.row.lat,
-      lon: match.row.lon,
-      alt: match.row.hEll,
-      heading: match.row.heading,
-      timestamp: d.toISOString(),
-      matchDeltaSeconds: Math.round(match.delta * 100) / 100,
-    });
-  }
+  manifest = manifest.filter((m) => m.date !== dateFolder).concat(newEntries);
 
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
   fs.writeFileSync(outPath, JSON.stringify(manifest, null, 2));
 
-  console.log(`\nListo. ${matched} fotos geoetiquetadas dentro de tolerancia, ${flagged} marcadas con desfase alto.`);
+  console.log(`\nListo. ${matched} fotos geoetiquetadas dentro de tolerancia, ${flagged} marcadas con desfase alto, ${failed} fallidas (omitidas).`);
   console.log('Manifest:', outPath);
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
+}
+
+module.exports = { loadTrajectory, interpolate };
